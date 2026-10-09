@@ -8,6 +8,8 @@ class DocumentValidator
 {
     private int $nodeCount = 0;
 
+    private int $imageCount = 0;
+
     /**
      * @return array<string, mixed>
      */
@@ -28,6 +30,7 @@ class DocumentValidator
         }
 
         $this->nodeCount = 0;
+        $this->imageCount = 0;
         $this->assertNode($document, 0, requiredType: 'doc');
 
         return $document;
@@ -85,7 +88,9 @@ class DocumentValidator
                 ]);
             }
 
-            $this->assertOnlyAttrs($node, ['level']);
+            $this->assertOnlyAttrs($node, ['level'], 'heading');
+        } elseif ($type === 'image') {
+            $this->assertImageNode($node);
         } elseif (isset($node['attrs'])) {
             throw ValidationException::withMessages([
                 'content' => ["Node [{$type}] does not allow attrs."],
@@ -122,7 +127,7 @@ class DocumentValidator
             ]);
         }
 
-        if (in_array($type, ['hardBreak', 'horizontalRule'], true)) {
+        if (in_array($type, ['hardBreak', 'horizontalRule', 'image'], true)) {
             if (isset($node['content'])) {
                 throw ValidationException::withMessages([
                     'content' => ["Node [{$type}] cannot contain content."],
@@ -155,20 +160,68 @@ class DocumentValidator
      * @param  array<string, mixed>  $node
      * @param  list<string>  $keys
      */
-    private function assertOnlyAttrs(array $node, array $keys): void
+    private function assertOnlyAttrs(array $node, array $keys, string $label): void
     {
         $attrs = $node['attrs'] ?? null;
 
         if (! is_array($attrs)) {
             throw ValidationException::withMessages([
-                'content' => ['Heading requires attrs.level.'],
+                'content' => ["{$label} requires attrs."],
             ]);
         }
 
         foreach (array_keys($attrs) as $key) {
             if (! in_array($key, $keys, true)) {
                 throw ValidationException::withMessages([
-                    'content' => ["Unsupported heading attribute [{$key}]."],
+                    'content' => ["Unsupported {$label} attribute [{$key}]."],
+                ]);
+            }
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $node
+     */
+    private function assertImageNode(array $node): void
+    {
+        $this->imageCount++;
+
+        if ($this->imageCount > (int) config('editor.max_images', 100)) {
+            throw ValidationException::withMessages([
+                'content' => ['Document contains too many images.'],
+            ]);
+        }
+
+        $this->assertOnlyAttrs($node, ['mediaId', 'alt', 'width'], 'image');
+
+        $attrs = $node['attrs'];
+        $mediaId = $attrs['mediaId'] ?? null;
+
+        if (! is_string($mediaId) || ! preg_match(
+            '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i',
+            $mediaId,
+        )) {
+            throw ValidationException::withMessages([
+                'content' => ['Image nodes require a valid mediaId UUID.'],
+            ]);
+        }
+
+        if (array_key_exists('alt', $attrs)) {
+            $alt = $attrs['alt'];
+
+            if (! is_string($alt) || mb_strlen($alt) > 300) {
+                throw ValidationException::withMessages([
+                    'content' => ['Image alt must be a string of at most 300 characters.'],
+                ]);
+            }
+        }
+
+        if (array_key_exists('width', $attrs)) {
+            $width = $attrs['width'];
+
+            if (! is_string($width) || ! in_array($width, config('editor.image_widths'), true)) {
+                throw ValidationException::withMessages([
+                    'content' => ['Image width must be normal, wide, or full.'],
                 ]);
             }
         }

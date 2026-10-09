@@ -10,6 +10,8 @@ return [
 
     'max_depth' => (int) env('EDITOR_MAX_DEPTH', 32),
 
+    'max_images' => (int) env('EDITOR_MAX_IMAGES', 100),
+
     'allowed_nodes' => [
         'doc',
         'paragraph',
@@ -21,7 +23,10 @@ return [
         'blockquote',
         'hardBreak',
         'horizontalRule',
+        'image',
     ],
+
+    'image_widths' => ['normal', 'wide', 'full'],
 
     'allowed_marks' => [
         'bold',

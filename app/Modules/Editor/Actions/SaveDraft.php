@@ -5,6 +5,7 @@ namespace App\Modules\Editor\Actions;
 use App\Modules\Editor\Models\ChapterDraft;
 use App\Modules\Editor\Support\DocumentValidator;
 use App\Modules\Editor\Support\PlainTextExtractor;
+use App\Modules\Media\Actions\AssertChapterMediaReferences;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -14,6 +15,7 @@ class SaveDraft
         private readonly DocumentValidator $validator,
         private readonly PlainTextExtractor $plainText,
         private readonly GetOrCreateDraft $getOrCreateDraft,
+        private readonly AssertChapterMediaReferences $assertChapterMedia,
     ) {}
 
     /**
@@ -22,6 +24,7 @@ class SaveDraft
     public function handle(string $chapterId, array $content, int $expectedVersion): ChapterDraft
     {
         $document = $this->validator->validate($content);
+        $this->assertChapterMedia->handleForChapter($document, $chapterId);
         $plain = $this->plainText->extract($document);
 
         if ($this->plainText->characterCount($plain) > (int) config('editor.max_plain_text_chars')) {

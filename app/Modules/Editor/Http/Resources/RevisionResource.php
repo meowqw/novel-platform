@@ -3,8 +3,10 @@
 namespace App\Modules\Editor\Http\Resources;
 
 use App\Modules\Editor\Models\ChapterRevision;
+use App\Modules\Media\Support\BuildMediaDictionary;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
+use Illuminate\Support\Facades\DB;
 
 /**
  * @property ChapterRevision $resource
@@ -27,8 +29,15 @@ class RevisionResource extends JsonResource
         ];
 
         if ($this->withContent) {
-            $data['content'] = $this->resource->content_json;
+            /** @var array<string, mixed> $content */
+            $content = is_array($this->resource->content_json) ? $this->resource->content_json : [];
+            $authorId = $this->resolveAuthorId($this->resource->chapter_id);
+            /** @var BuildMediaDictionary $dictionary */
+            $dictionary = app(BuildMediaDictionary::class);
+
+            $data['content'] = $content;
             $data['plain_text'] = $this->resource->plain_text;
+            $data['media'] = $authorId !== null ? $dictionary->forOwner($content, $authorId) : [];
         }
 
         return $data;
@@ -39,5 +48,15 @@ class RevisionResource extends JsonResource
         $this->withContent = $withContent;
 
         return $this;
+    }
+
+    private function resolveAuthorId(string $chapterId): ?string
+    {
+        $authorId = DB::table('chapters')
+            ->join('works', 'works.id', '=', 'chapters.work_id')
+            ->where('chapters.id', $chapterId)
+            ->value('works.author_id');
+
+        return is_string($authorId) ? $authorId : null;
     }
 }

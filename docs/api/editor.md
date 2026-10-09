@@ -3,7 +3,9 @@
 Owner-only Sanctum Bearer. Foreign chapter/revision → **404**. Invalid document → **422**. Stale CAS / idempotency misuse → **409**.
 
 Document format: Tiptap/ProseMirror JSON, root `{ "type": "doc", "content": [...] }`.
-Allow-list and limits: `config/editor.php` (nodes, marks, depth, size, plain-text length). Links: `http`/`https` only.
+Allow-list and limits: `config/editor.php` (nodes, marks, depth, size, plain-text length, `max_images`). Links: `http`/`https` only.
+
+Block `image` node: attrs `mediaId` (UUID, `chapter_image` owned by author), optional `alt` (≤300), `width` (`normal`|`wide`|`full`). No `src`. Draft/revision responses include sibling `media` map for resolution (JSON content unchanged). Restore re-validates media ownership.
 
 | Method | Path | Notes |
 |--------|------|--------|

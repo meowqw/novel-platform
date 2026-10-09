@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: Novel Platform API
   version: 1.0.0
-  summary: Backend HTTP contract for Identity, Library, Editor, and Publishing
+  summary: Backend HTTP contract for Identity, Library, Editor, Publishing, Catalog, and Media
   description: |
     Generated from Laravel routes, Form Requests, and API Resources (not inventing endpoints).
 
@@ -30,6 +30,8 @@ tags:
   - name: Library
   - name: Editor
   - name: Publishing
+  - name: Catalog
+  - name: Media
   - name: Public
 security:
   - SanctumBearer: []
@@ -546,6 +548,59 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/ConflictMessage'
+
+  /works/{work}/cover:
+    put:
+      tags: [Library]
+      summary: Assign work cover
+      description: |
+        `media_id` must be an existing `cover` asset owned by the work author.
+        Cover visibility is live: once the work is published, public routes reflect the new cover immediately.
+      operationId: worksCoverUpdate
+      parameters:
+        - $ref: '#/components/parameters/WorkId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [media_id]
+              properties:
+                media_id:
+                  type: string
+                  format: uuid
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Work'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+    delete:
+      tags: [Library]
+      summary: Clear work cover reference
+      description: Does not delete media bytes.
+      operationId: worksCoverDestroy
+      parameters:
+        - $ref: '#/components/parameters/WorkId'
+      responses:
+        '204':
+          description: Cleared
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /works/{work}/volumes:
     post:
@@ -1200,6 +1255,275 @@ paths:
         '429':
           $ref: '#/components/responses/TooManyRequests'
 
+  /media/images:
+    post:
+      tags: [Media]
+      summary: Upload image asset
+      description: |
+        Multipart upload. Re-encodes with Intervention Image (GD); strips metadata.
+        Response `url`/`thumb_url` are temporary signed private URLs for editor/BFF `<img>`
+        without exposing Bearer tokens to the browser. Also available via authenticated GET.
+      operationId: mediaImagesStore
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, kind]
+              properties:
+                kind:
+                  type: string
+                  enum: [cover, chapter_image]
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/MediaAsset'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /media/{media}:
+    get:
+      tags: [Media]
+      summary: Private media bytes (owner)
+      operationId: mediaShow
+      parameters:
+        - name: media
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: variant
+          in: query
+          schema:
+            type: string
+            enum: [original, thumb]
+            default: original
+      responses:
+        '200':
+          description: Image bytes
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                example: private, no-store
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/png:
+              schema:
+                type: string
+                format: binary
+            image/webp:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /media/{media}/signed:
+    get:
+      tags: [Media]
+      summary: Temporary signed private media bytes
+      security: []
+      description: Signature + expiry required. Issued to owners for editor rendering via BFF/HttpOnly cookie flows.
+      operationId: mediaShowSigned
+      parameters:
+        - name: media
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: variant
+          in: query
+          schema:
+            type: string
+            enum: [original, thumb]
+        - name: expires
+          in: query
+          required: true
+          schema:
+            type: integer
+        - name: signature
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Image bytes
+        '403':
+          description: Invalid or expired signature
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /public/media/{media}:
+    get:
+      tags: [Public]
+      summary: Public media bytes when currently reachable
+      security: []
+      description: |
+        Reachable if used as published work cover (live) or referenced by a published chapter
+        snapshot of a published work. Short cache with must-revalidate; unpublish revokes access.
+      operationId: publicMediaShow
+      parameters:
+        - name: media
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: variant
+          in: query
+          schema:
+            type: string
+            enum: [original, thumb]
+            default: original
+      responses:
+        '200':
+          description: Image bytes
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                example: 'public, max-age=60, must-revalidate'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /public/works:
+    get:
+      tags: [Catalog]
+      summary: Public catalog of published works
+      security: []
+      description: |
+        Paginated catalog cards for works with `work_publications.is_published = true`.
+        Visibility does **not** use `works.status`. Empty published works appear with
+        `published_chapters_count: 0`. Bearer tokens do not broaden results.
+
+        **Sort:**
+        - `recent` (default): `last_activity_at` DESC — `GREATEST(work.published_at,
+          MAX(published chapter.published_at))`; nulls last; draft edits ignored
+        - `published`: work `published_at` DESC (`NULL` treated as oldest)
+        - `title`: case-insensitive `lower(title)` ASC
+        Tie-breaker: `works.id` ASC.
+
+        **Search `q`:** trimmed title substring; `%`, `_`, `\` escaped; whitespace-only = absent.
+        Unknown query keys ignored. Header `Cache-Control: no-store, private`.
+      operationId: publicWorksIndex
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: per_page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+        - name: q
+          in: query
+          schema:
+            type: string
+            maxLength: 100
+          description: Title substring search (case-insensitive)
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/WorkStatus'
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [recent, published, title]
+            default: recent
+      responses:
+        '200':
+          description: Paginated catalog
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                example: no-store, private
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedPublicCatalogWorks'
+              examples:
+                withCyrillic:
+                  summary: Cyrillic title and empty chapters
+                  value:
+                    data:
+                      - id: 018f0b70-0000-7000-8000-000000000001
+                        title: Пример истории
+                        description: Краткое описание
+                        slug: primer-istorii
+                        status: ongoing
+                        author:
+                          id: 018f0b70-0000-7000-8000-000000000002
+                          username: writer
+                          name: Автор
+                          bio: null
+                          avatar_url: null
+                          created_at: '2026-10-01T00:00:00+00:00'
+                        cover_url: null
+                        published_at: '2026-10-01T10:00:00+00:00'
+                        last_activity_at: '2026-10-01T10:00:00+00:00'
+                        published_chapters_count: 0
+                    links:
+                      first: http://localhost:8080/api/v1/public/works?page=1
+                      last: http://localhost:8080/api/v1/public/works?page=1
+                      prev: null
+                      next: null
+                    meta:
+                      current_page: 1
+                      per_page: 20
+                      total: 1
+                      last_page: 1
+                empty:
+                  summary: No matches
+                  value:
+                    data: []
+                    links:
+                      first: http://localhost:8080/api/v1/public/works?page=1
+                      last: http://localhost:8080/api/v1/public/works?page=1
+                      prev: null
+                      next: null
+                    meta:
+                      current_page: 1
+                      per_page: 20
+                      total: 0
+                      last_page: 1
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
   /public/works/{work}:
     get:
       tags: [Public]
@@ -1607,7 +1931,7 @@ components:
 
     Work:
       type: object
-      required: [id, title, description, slug, status, created_at, updated_at]
+      required: [id, title, description, slug, status, cover_media_id, cover_url, cover_thumb_url, created_at, updated_at]
       properties:
         id:
           type: string
@@ -1621,6 +1945,15 @@ components:
           description: Unique per author
         status:
           $ref: '#/components/schemas/WorkStatus'
+        cover_media_id:
+          type: ['string', 'null']
+          format: uuid
+        cover_url:
+          type: ['string', 'null']
+          description: Signed private URL to original (studio)
+        cover_thumb_url:
+          type: ['string', 'null']
+          description: Signed private URL to cover thumb ≤320×450
         created_at:
           type: ['string', 'null']
           format: date-time
@@ -1635,6 +1968,35 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Chapter'
+
+    MediaAsset:
+      type: object
+      required: [id, kind, url, width, height, mime_type, byte_size]
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          enum: [cover, chapter_image]
+        url:
+          type: string
+          description: Temporary signed private URL (original)
+        thumb_url:
+          type: string
+          description: Present for cover uploads
+        thumb_width:
+          type: integer
+        thumb_height:
+          type: integer
+        width:
+          type: integer
+        height:
+          type: integer
+        mime_type:
+          type: string
+        byte_size:
+          type: integer
 
     WorkDetail:
       allOf:
@@ -1751,6 +2113,65 @@ components:
           type: object
           additionalProperties: true
 
+    PublicCatalogWork:
+      type: object
+      required:
+        - id
+        - title
+        - description
+        - slug
+        - status
+        - author
+        - cover_url
+        - published_at
+        - last_activity_at
+        - published_chapters_count
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        description:
+          type: ['string', 'null']
+        slug:
+          type: string
+        status:
+          $ref: '#/components/schemas/WorkStatus'
+        author:
+          $ref: '#/components/schemas/PublicUser'
+        cover_url:
+          type: ['string', 'null']
+          description: Public thumb URL (`/public/media/{id}?variant=thumb`) when cover set
+        published_at:
+          type: ['string', 'null']
+          format: date-time
+          description: work_publications.published_at (overwritten on republish)
+        last_activity_at:
+          type: ['string', 'null']
+          format: date-time
+          description: |
+            GREATEST(work published_at, max published chapter published_at).
+            Null when both sides are null.
+        published_chapters_count:
+          type: integer
+          minimum: 0
+
+    PaginatedPublicCatalogWorks:
+      type: object
+      required: [data, links, meta]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/PublicCatalogWork'
+        links:
+          type: object
+          additionalProperties: true
+        meta:
+          type: object
+          additionalProperties: true
+
     ProseMirrorMark:
       type: object
       required: [type]
@@ -1777,7 +2198,8 @@ components:
       description: |
         Allow-list from config/editor.php. Root must be type=doc.
         Limits (defaults): max_json_bytes=1048576, max_nodes=20000, max_depth=32,
-        max_plain_text_chars=200000. Heading attrs.level ∈ {1,2,3}.
+        max_plain_text_chars=200000, max_images=100. Heading attrs.level ∈ {1,2,3}.
+        Image attrs: mediaId (uuid), optional alt (≤300), width normal|wide|full. No src.
       properties:
         type:
           type: string
@@ -1792,6 +2214,7 @@ components:
             - blockquote
             - hardBreak
             - horizontalRule
+            - image
         text:
           type: string
           description: Required for type=text; whitespace preserved
@@ -1805,6 +2228,15 @@ components:
             level:
               type: integer
               enum: [1, 2, 3]
+            mediaId:
+              type: string
+              format: uuid
+            alt:
+              type: string
+              maxLength: 300
+            width:
+              type: string
+              enum: [normal, wide, full]
         content:
           type: array
           items:
@@ -1999,6 +2431,7 @@ components:
         - slug
         - status
         - author
+        - cover_url
         - published_at
         - volumes
         - chapters
@@ -2016,6 +2449,9 @@ components:
           $ref: '#/components/schemas/WorkStatus'
         author:
           $ref: '#/components/schemas/PublicUser'
+        cover_url:
+          type: ['string', 'null']
+          description: Public original cover URL when set (live with publication)
         published_at:
           type: ['string', 'null']
           format: date-time
@@ -2038,6 +2474,7 @@ components:
         - title
         - position
         - content
+        - media
         - published_at
         - stats
       properties:
@@ -2056,6 +2493,23 @@ components:
           type: integer
         content:
           $ref: '#/components/schemas/ProseMirrorDoc'
+        media:
+          type: object
+          additionalProperties:
+            type: object
+            required: [url, width, height, mime_type, byte_size]
+            properties:
+              url:
+                type: string
+              width:
+                type: integer
+              height:
+                type: integer
+              mime_type:
+                type: string
+              byte_size:
+                type: integer
+          description: Map of mediaId → public delivery metadata (content JSON unchanged)
         published_at:
           type: ['string', 'null']
           format: date-time

@@ -40,7 +40,7 @@ class PlainTextExtractor
             return;
         }
 
-        if ($type === 'horizontalRule') {
+        if ($type === 'horizontalRule' || $type === 'image') {
             $this->flush($parts, $buffer);
 
             return;

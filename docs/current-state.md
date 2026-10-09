@@ -13,6 +13,8 @@ Last updated: 2026-10-10
 - Library module: works / volumes / chapter metadata, ordering, owner-only API
 - Editor module: chapter drafts (CAS), revisions, restore; document validation via `config/editor.php`
 - Publishing module: work/chapter publish state, public snapshots, public read API
+- Catalog module: public paginated catalog (`GET /public/works`), title search, status/sort
+- Media module: image upload, covers (+ thumb), chapter inline images, private/public delivery
 - Pest tests, Pint, Larastan (level 6), GitHub Actions CI
 - Agent docs: `AGENTS.md`, `.cursor/rules`, architecture/conventions/deployment
 
@@ -20,7 +22,7 @@ Last updated: 2026-10-10
 
 - SPA cookie-based Sanctum login UI
 - OAuth / 2FA / passkeys
-- Public catalog / search / subscriptions / comments / paid access
+- Full-text search / author catalog filter / subscriptions / comments / paid access
 - Collaborative editing / AI
-- Media storage / avatar upload
+- Avatar upload / media GC / quotas / remote image URLs
 - Image registry publish from CI

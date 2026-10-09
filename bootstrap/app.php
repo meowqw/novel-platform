@@ -13,6 +13,9 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        // API-first: never redirect guests to a missing web login route (would 500).
+        $middleware->redirectGuestsTo(fn (): ?string => null);
+
         // Edge is Compose nginx (see docker/nginx/default.conf). Trust only private
         // hop networks — not '*' and not 127.0.0.1 (keeps PHPUnit from honouring
         // client-supplied X-Forwarded-For). If an external LB is added in front of

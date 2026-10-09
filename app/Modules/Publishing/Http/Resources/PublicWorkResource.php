@@ -6,6 +6,7 @@ use App\Modules\Identity\Http\Resources\PublicUserResource;
 use App\Modules\Library\Models\Chapter;
 use App\Modules\Library\Models\Volume;
 use App\Modules\Library\Models\Work;
+use App\Modules\Media\Support\MediaUrlBuilder;
 use App\Modules\Publishing\Models\WorkPublication;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
@@ -50,6 +51,10 @@ class PublicWorkResource extends JsonResource
                 ];
             });
 
+        /** @var MediaUrlBuilder $urls */
+        $urls = app(MediaUrlBuilder::class);
+        $coverId = $this->resource->cover_media_id;
+
         return [
             'id' => $this->resource->id,
             'title' => $this->resource->title,
@@ -57,6 +62,7 @@ class PublicWorkResource extends JsonResource
             'slug' => $this->resource->slug,
             'status' => $this->resource->status,
             'author' => new PublicUserResource($this->resource->author),
+            'cover_url' => $coverId ? $urls->publicUrl($coverId) : null,
             'published_at' => $this->publication->published_at?->toIso8601String(),
             'volumes' => $volumes,
             'chapters' => $this->mapChapters($byVolume->get('', collect())),

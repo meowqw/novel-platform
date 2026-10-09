@@ -3,6 +3,7 @@
 namespace App\Modules\Library\Models;
 
 use App\Models\User;
+use App\Modules\Media\Models\MediaAsset;
 use Database\Factories\Library\WorkFactory;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -18,6 +19,7 @@ use Illuminate\Support\Carbon;
  * @property string|null $description
  * @property string $slug
  * @property string $status
+ * @property string|null $cover_media_id
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
@@ -37,6 +39,7 @@ class Work extends Model
         'description',
         'slug',
         'status',
+        'cover_media_id',
     ];
 
     protected static function newFactory(): WorkFactory
@@ -48,6 +51,12 @@ class Work extends Model
     public function author(): BelongsTo
     {
         return $this->belongsTo(User::class, 'author_id');
+    }
+
+    /** @return BelongsTo<MediaAsset, $this> */
+    public function coverMedia(): BelongsTo
+    {
+        return $this->belongsTo(MediaAsset::class, 'cover_media_id');
     }
 
     /** @return HasMany<Volume, $this> */

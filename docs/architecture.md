@@ -56,6 +56,21 @@ Rules:
 - Lock order on chapter publish: `chapters` → `chapter_drafts` → `chapter_publications`
 - See `docs/api/publishing.md`
 
+## Catalog
+
+- Owns public catalog listing (`GET /public/works`); read-only joins on Library + Publishing tables
+- Visibility: `work_publications.is_published`; empty published works allowed (`published_chapters_count = 0`)
+- Cover cards use public media thumb URL (`works.cover_media_id`); no result caching in v1
+- See `docs/api/catalog.md`
+
+## Media
+
+- Owns `media_assets`, private disk storage, upload/normalization (Intervention Image + GD), delivery endpoints
+- Library owns `works.cover_media_id` (live public cover while work published)
+- Editor validates `image` nodes (`mediaId`); Publishing maintains `published_media_references` on chapter publish/unpublish
+- Public bytes only when cover is live-published or chapter refs + work/chapter published
+- See `docs/api/media.md`
+
 ## Example module
 
 `app/Modules/Example` demonstrates the pattern with a `notes` resource. It is an architectural demo, not product functionality.

@@ -61,6 +61,28 @@ it('rejects unsafe links, unknown nodes and non-doc roots', function (): void {
 
     expect(fn () => $validator->validate([
         'type' => 'doc',
+        'content' => [[
+            'type' => 'image',
+            'attrs' => [
+                'mediaId' => '018f0b70-0000-7000-8000-000000000003',
+                'src' => 'https://evil.example/x.png',
+            ],
+        ]],
+    ]))->toThrow(ValidationException::class);
+
+    expect($validator->validate([
+        'type' => 'doc',
+        'content' => [[
+            'type' => 'image',
+            'attrs' => [
+                'mediaId' => '018f0b70-0000-7000-8000-000000000003',
+                'width' => 'wide',
+            ],
+        ]],
+    ])['content'][0]['type'])->toBe('image');
+
+    expect(fn () => $validator->validate([
+        'type' => 'doc',
         'content' => [
             [
                 'type' => 'paragraph',

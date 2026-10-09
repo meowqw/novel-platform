@@ -25,6 +25,7 @@ class WorkController extends Controller
         $perPage = min(100, max(1, (int) $request->integer('per_page', 20)));
 
         $works = Work::query()
+            ->with('coverMedia')
             ->where('author_id', $request->user()->id)
             ->orderByDesc('created_at')
             ->paginate($perPage);
@@ -47,7 +48,7 @@ class WorkController extends Controller
     public function show(Request $request, Work $work): WorkResource
     {
         $work = $this->ownedWork($request, $work);
-        $work->load(['volumes', 'chapters']);
+        $work->load(['volumes', 'chapters', 'coverMedia']);
 
         return new WorkResource($work);
     }

@@ -4,12 +4,21 @@ namespace App\Modules\Editor\Actions;
 
 use App\Modules\Editor\Models\ChapterDraft;
 use App\Modules\Editor\Models\ChapterRevision;
+use App\Modules\Media\Actions\AssertChapterMediaReferences;
 use Illuminate\Support\Facades\DB;
 
 class RestoreRevision
 {
+    public function __construct(
+        private readonly AssertChapterMediaReferences $assertChapterMedia,
+    ) {}
+
     public function handle(ChapterRevision $revision, int $expectedVersion): ChapterDraft
     {
+        /** @var array<string, mixed> $content */
+        $content = is_array($revision->content_json) ? $revision->content_json : [];
+        $this->assertChapterMedia->handleForChapter($content, $revision->chapter_id);
+
         return DB::transaction(function () use ($revision, $expectedVersion): ChapterDraft {
             $affected = ChapterDraft::query()
                 ->where('chapter_id', $revision->chapter_id)

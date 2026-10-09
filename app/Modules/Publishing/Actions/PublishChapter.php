@@ -6,6 +6,8 @@ use App\Modules\Editor\Models\ChapterDraft;
 use App\Modules\Editor\Support\DocumentValidator;
 use App\Modules\Editor\Support\PlainTextExtractor;
 use App\Modules\Library\Models\Chapter;
+use App\Modules\Media\Actions\AssertChapterMediaReferences;
+use App\Modules\Media\Actions\SyncChapterPublishedMedia;
 use App\Modules\Publishing\Models\ChapterPublication;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -15,6 +17,8 @@ class PublishChapter
     public function __construct(
         private readonly DocumentValidator $validator,
         private readonly PlainTextExtractor $plainText,
+        private readonly AssertChapterMediaReferences $assertChapterMedia,
+        private readonly SyncChapterPublishedMedia $syncChapterPublishedMedia,
     ) {}
 
     public function handle(Chapter $chapter): ChapterPublication
@@ -30,6 +34,7 @@ class PublishChapter
 
         $expectedVersion = $draft->version;
         $document = $this->validator->validate($draft->content_json);
+        $this->assertChapterMedia->handleForChapter($document, $chapter->id);
         $plain = $this->plainText->extract($document);
 
         if (preg_replace('/\s+/u', '', $plain) === '') {
@@ -79,6 +84,8 @@ class PublishChapter
                 'published_at' => now(),
             ]);
             $publication->save();
+
+            $this->syncChapterPublishedMedia->handle($chapter->work_id, $chapter->id, $document);
 
             return $publication->refresh();
         });

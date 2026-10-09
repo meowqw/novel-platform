@@ -18,10 +18,11 @@ Foreign resources → **404**. Work/chapter flags are independent: chapter may b
 
 | Method | Path | Notes |
 |--------|------|--------|
-| GET | `/public/works/{work}` | Only if work published; volumes with ≥1 published chapter; ungrouped published chapters |
-| GET | `/public/chapters/{chapter}` | Only if work **and** chapter published |
+| GET | `/public/works/{work}` | Only if work published; volumes with ≥1 published chapter; ungrouped published chapters; live `cover_url` |
+| GET | `/public/chapters/{chapter}` | Only if work **and** chapter published; `media` map for snapshot image IDs |
+| GET | `/public/media/{id}` | Bytes if cover live-published or chapter ref + work/chapter published |
 
-Unpublished / unknown → **404**. `Cache-Control: no-store, private`. No draft/revision/source_draft_version in public payloads.
+Unpublished / unknown → **404**. `Cache-Control: no-store, private` on work/chapter JSON. Media public cache is short + `must-revalidate`. No draft/revision/source_draft_version in public payloads. Chapter publish/unpublish atomically syncs `published_media_references`.
 
 ## Deletion
 
