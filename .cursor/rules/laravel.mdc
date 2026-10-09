@@ -1,0 +1,12 @@
+---
+description: Laravel-native patterns for this repository
+globs: app/**/*.php,routes/**/*.php,bootstrap/**/*.php,config/**/*.php
+---
+
+# Laravel
+
+- Prefer framework APIs: Form Requests, API Resources, Policies, Eloquent, Jobs/Events
+- Thin controllers; put nontrivial writes in Actions
+- Do not introduce repositories, DTO layers, or a command bus unless an ADR says so
+- JSON API under `/api/v1`; keep Laravel validation error shape
+- Never bake secrets into images or commit `.env`

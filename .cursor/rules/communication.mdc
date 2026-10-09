@@ -1,0 +1,36 @@
+
+---
+description: Communication and token efficiency rules
+alwaysApply: true
+---
+
+# Communication & Token Efficiency
+
+- Respond in Russian.
+- Keep responses concise and technical.
+- Avoid repeating the user's task or explaining obvious code changes.
+- Do not output entire files unless explicitly requested.
+- Do not repeat information already documented in the project.
+- Read only files relevant to the current task.
+- Prefer targeted searches over reading entire directories.
+- Do not reread unchanged files unless necessary.
+- Use existing project conventions and patterns.
+- Avoid unnecessary documentation and verbose comments.
+- Do not create extra abstractions without a concrete need.
+
+## Planning
+- For simple tasks, implement directly.
+- For complex tasks, provide a short plan (3-7 steps).
+- Request approval only for architectural changes, destructive operations, or ambiguous requirements.
+
+## Reporting
+After implementation, use this format:
+
+Result: one or two sentences.
+Checks: passed / failed.
+Issues: only if present.
+
+## Quality
+- Never skip required tests or static analysis to save tokens.
+- Do not sacrifice correctness, security, or maintainability for brevity.
+- If additional investigation is necessary, perform it.

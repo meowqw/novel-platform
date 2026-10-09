@@ -1,0 +1,41 @@
+services:
+  nginx:
+    ports:
+      - "8080:80"
+    volumes:
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - .:/var/www/html:ro
+
+  app:
+    build:
+      context: .
+      target: development
+    volumes:
+      - .:/var/www/html
+      - app_vendor:/var/www/html/vendor
+    environment:
+      APP_ENV: local
+      APP_DEBUG: true
+
+  worker:
+    build:
+      context: .
+      target: development
+    volumes:
+      - .:/var/www/html
+      - app_vendor:/var/www/html/vendor
+    environment:
+      APP_ENV: local
+      APP_DEBUG: true
+
+  postgres:
+    ports:
+      - "127.0.0.1:5432:5432"
+
+  redis:
+    ports:
+      - "127.0.0.1:6379:6379"
+
+volumes:
+  app_vendor:

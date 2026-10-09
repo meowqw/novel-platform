@@ -1,0 +1,12 @@
+---
+description: Testing and quality gates
+globs: tests/**/*.php,phpunit.xml,phpstan.neon,.github/workflows/**/*
+---
+
+# Testing
+
+- Pest for Feature and Unit tests
+- Feature HTTP tests cover success, validation failure, and not-found where relevant
+- Use RefreshDatabase; prefer PostgreSQL (Compose/CI), not external SaaS
+- After substantive changes run: `vendor/bin/pint --test`, `vendor/bin/phpstan analyse`, `php artisan test`
+- Report actual command output; never claim green without execution

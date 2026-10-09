@@ -1,0 +1,14 @@
+---
+description: Modular monolith conventions under app/Modules
+globs: app/Modules/**/*.php,bootstrap/providers.php
+---
+
+# Modules
+
+- One capability per module under `app/Modules/{Name}`
+- Register `{Name}ServiceProvider` in `bootstrap/providers.php`
+- Load migrations with `loadMigrationsFrom`; routes with an `api` + `api` prefix group and module `v1/...` routes
+- Providers must not migrate, call the network, or perform destructive boot work
+- Cross-module state changes go through a documented public Action/service
+- Example module is a demo pattern, not product domain
+- Identity owns auth/profile; canonical user model stays `App\Models\User`

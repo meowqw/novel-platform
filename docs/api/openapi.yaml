@@ -1,0 +1,2063 @@
+openapi: 3.1.0
+info:
+  title: Novel Platform API
+  version: 1.0.0
+  summary: Backend HTTP contract for Identity, Library, Editor, and Publishing
+  description: |
+    Generated from Laravel routes, Form Requests, and API Resources (not inventing endpoints).
+
+    ## Local frontend → Docker
+
+    1. Start stack: `make up && make key && make migrate`
+    2. Base URL: `http://localhost:8080/api/v1`
+    3. Health check: `GET http://localhost:8080/api/v1/health` → `{ "status": "ok" }`
+    4. Auth: `POST /auth/register` or `/auth/login` → use returned `token` as
+       `Authorization: Bearer <token>` on protected routes
+    5. CORS: browser calls to `:8080` from another origin need CORS config (not enabled by default);
+       prefer same-origin proxy in the frontend dev server to `http://localhost:8080`
+    6. Keep `worker` running for queued verification/reset mail (`MAIL_MAILER=log` locally)
+
+    Resource responses are Laravel JsonResource wrapped as `{ "data": ... }` unless noted.
+    Pagination adds `links` and `meta` (Laravel default).
+  contact:
+    name: Novel Platform backend
+servers:
+  - url: http://localhost:8080/api/v1
+    description: Local Docker Compose (nginx :8080)
+tags:
+  - name: Health
+  - name: Identity
+  - name: Library
+  - name: Editor
+  - name: Publishing
+  - name: Public
+security:
+  - SanctumBearer: []
+paths:
+  /health:
+    get:
+      tags: [Health]
+      summary: Liveness
+      security: []
+      operationId: getHealth
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    const: ok
+              example:
+                status: ok
+
+  /auth/register:
+    post:
+      tags: [Identity]
+      summary: Register and issue PAT
+      security: []
+      operationId: authRegister
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+            example:
+              username: alice_01
+              name: Alice
+              email: alice@example.com
+              password: password12345
+              password_confirmation: password12345
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthTokenResponse'
+              example:
+                data:
+                  id: 0199a0a0-0000-7000-8000-000000000001
+                  username: alice_01
+                  name: Alice
+                  email: alice@example.com
+                  email_verified_at: null
+                  bio: null
+                  avatar_url: null
+                  created_at: '2026-10-10T00:00:00+00:00'
+                token: "1|plainTextTokenValue"
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /auth/login:
+    post:
+      tags: [Identity]
+      summary: Login and issue PAT
+      security: []
+      operationId: authLogin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+            example:
+              email: alice@example.com
+              password: password12345
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthTokenResponse'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /auth/logout:
+    post:
+      tags: [Identity]
+      summary: Revoke current bearer token
+      operationId: authLogout
+      responses:
+        '204':
+          description: No content
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+
+  /auth/logout-all:
+    post:
+      tags: [Identity]
+      summary: Revoke all tokens for the user
+      operationId: authLogoutAll
+      responses:
+        '204':
+          description: No content
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+
+  /auth/me:
+    get:
+      tags: [Identity]
+      summary: Current private profile
+      operationId: authMe
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/PrivateUser'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+
+  /auth/tokens:
+    get:
+      tags: [Identity]
+      summary: List personal access tokens (no secrets)
+      operationId: authTokensIndex
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/PersonalAccessToken'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+
+  /auth/tokens/{id}:
+    delete:
+      tags: [Identity]
+      summary: Revoke owned token by id
+      operationId: authTokensDestroy
+      parameters:
+        - $ref: '#/components/parameters/TokenId'
+      responses:
+        '204':
+          description: No content
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /auth/email/verification-notification:
+    post:
+      tags: [Identity]
+      summary: Resend email verification notification
+      operationId: authEmailVerificationNotice
+      responses:
+        '200':
+          description: Message
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+              examples:
+                sent:
+                  value:
+                    message: Verification link sent.
+                already:
+                  value:
+                    message: Email already verified.
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /auth/email/verify/{id}/{hash}:
+    get:
+      tags: [Identity]
+      summary: Verify email (signed URL)
+      security: []
+      operationId: authEmailVerify
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: hash
+          in: path
+          required: true
+          schema:
+            type: string
+          description: sha1 of email for verification
+        - name: expires
+          in: query
+          required: true
+          schema:
+            type: integer
+          description: Unix timestamp (Laravel signed route)
+        - name: signature
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Verified or already verified
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '403':
+          description: Invalid verification link (hash mismatch / user missing)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /auth/password/forgot:
+    post:
+      tags: [Identity]
+      summary: Request password reset (anti-enumeration)
+      security: []
+      operationId: authPasswordForgot
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email:
+                  type: string
+                  format: email
+      responses:
+        '200':
+          description: Always success-shaped
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+              example:
+                message: If that email address is registered, a reset link has been sent.
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /auth/password/reset:
+    post:
+      tags: [Identity]
+      summary: Reset password with token (revokes all API tokens)
+      security: []
+      operationId: authPasswordReset
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResetPasswordRequest'
+      responses:
+        '200':
+          description: Reset
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+              example:
+                message: Password has been reset.
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /auth/password:
+    put:
+      tags: [Identity]
+      summary: Change password (keeps current token, revokes others)
+      operationId: authPasswordUpdate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+              example:
+                message: Password updated.
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /auth/email:
+    put:
+      tags: [Identity]
+      summary: Change email (resets verification)
+      operationId: authEmailUpdate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangeEmailRequest'
+      responses:
+        '200':
+          description: Updated user
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/PrivateUser'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /users/{username}:
+    get:
+      tags: [Identity]
+      summary: Public profile by username
+      security: []
+      operationId: usersShow
+      parameters:
+        - name: username
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/PublicUser'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /profile:
+    patch:
+      tags: [Identity]
+      summary: Update own profile
+      operationId: profileUpdate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProfileRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/PrivateUser'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /works:
+    get:
+      tags: [Library]
+      summary: List own works
+      operationId: worksIndex
+      parameters:
+        - $ref: '#/components/parameters/PerPage'
+      responses:
+        '200':
+          description: Paginated works (without nested volumes/chapters unless loaded)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedWorks'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+    post:
+      tags: [Library]
+      summary: Create work
+      operationId: worksStore
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StoreWorkRequest'
+            example:
+              title: My Novel
+              description: Optional blurb
+              status: ongoing
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Work'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /works/{work}:
+    get:
+      tags: [Library]
+      summary: Work detail with volumes and chapters
+      operationId: worksShow
+      parameters:
+        - $ref: '#/components/parameters/WorkId'
+      responses:
+        '200':
+          description: OK — volumes listed separately; chapters flat (include volume_id)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/WorkDetail'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Library]
+      summary: Update work metadata
+      description: Changing title does not auto-change slug unless slug is sent explicitly.
+      operationId: worksUpdate
+      parameters:
+        - $ref: '#/components/parameters/WorkId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateWorkRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Work'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+    delete:
+      tags: [Library]
+      summary: Delete work
+      description: Cascades volumes/chapters. Returns 409 if editor drafts/revisions or publication rows exist (FK RESTRICT).
+      operationId: worksDestroy
+      parameters:
+        - $ref: '#/components/parameters/WorkId'
+      responses:
+        '204':
+          description: Deleted
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/ConflictMessage'
+
+  /works/{work}/volumes:
+    post:
+      tags: [Library]
+      summary: Append volume
+      operationId: worksVolumesStore
+      parameters:
+        - $ref: '#/components/parameters/WorkId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title]
+              properties:
+                title:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Volume'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /works/{work}/volumes/{volume}:
+    patch:
+      tags: [Library]
+      summary: Rename volume
+      operationId: worksVolumesUpdate
+      parameters:
+        - $ref: '#/components/parameters/WorkId'
+        - $ref: '#/components/parameters/VolumeId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title]
+              properties:
+                title:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Volume'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+    delete:
+      tags: [Library]
+      summary: Delete volume (chapters → ungrouped)
+      operationId: worksVolumesDestroy
+      parameters:
+        - $ref: '#/components/parameters/WorkId'
+        - $ref: '#/components/parameters/VolumeId'
+      responses:
+        '204':
+          description: Deleted
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /works/{work}/volumes/order:
+    put:
+      tags: [Library]
+      summary: Reorder volumes (complete list)
+      operationId: worksVolumesReorder
+      parameters:
+        - $ref: '#/components/parameters/WorkId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [order]
+              properties:
+                order:
+                  type: array
+                  maxItems: 500
+                  items:
+                    type: string
+                    format: uuid
+      responses:
+        '204':
+          description: Reordered
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /works/{work}/chapters:
+    post:
+      tags: [Library]
+      summary: Create chapter
+      operationId: worksChaptersStore
+      parameters:
+        - $ref: '#/components/parameters/WorkId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StoreChapterRequest'
+            example:
+              title: Chapter 1
+              volume_id: null
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Chapter'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /works/{work}/chapters/{chapter}:
+    patch:
+      tags: [Library]
+      summary: Rename chapter
+      operationId: worksChaptersUpdate
+      parameters:
+        - $ref: '#/components/parameters/WorkId'
+        - $ref: '#/components/parameters/ChapterId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title]
+              properties:
+                title:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Chapter'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+    delete:
+      tags: [Library]
+      summary: Delete chapter
+      description: Compacts positions. 409 if editor or publication data exists.
+      operationId: worksChaptersDestroy
+      parameters:
+        - $ref: '#/components/parameters/WorkId'
+        - $ref: '#/components/parameters/ChapterId'
+      responses:
+        '204':
+          description: Deleted
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/ConflictMessage'
+
+  /works/{work}/chapters/order:
+    put:
+      tags: [Library]
+      summary: Reorder chapters in a sibling list
+      operationId: worksChaptersReorder
+      parameters:
+        - $ref: '#/components/parameters/WorkId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [order, volume_id]
+              properties:
+                volume_id:
+                  type: ['string', 'null']
+                  format: uuid
+                  description: null = ungrouped sibling list (key must be present)
+                order:
+                  type: array
+                  maxItems: 500
+                  items:
+                    type: string
+                    format: uuid
+      responses:
+        '204':
+          description: Reordered
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /works/{work}/chapters/{chapter}/move:
+    post:
+      tags: [Library]
+      summary: Move chapter to volume/ungrouped at position
+      operationId: worksChaptersMove
+      parameters:
+        - $ref: '#/components/parameters/WorkId'
+        - $ref: '#/components/parameters/ChapterId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [volume_id, position]
+              properties:
+                volume_id:
+                  type: ['string', 'null']
+                  format: uuid
+                position:
+                  type: integer
+                  minimum: 1
+                  maximum: 10000
+      responses:
+        '200':
+          description: Moved
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Chapter'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /chapters/{chapter}/draft:
+    get:
+      tags: [Editor]
+      summary: Get draft (lazy-creates empty doc)
+      operationId: chaptersDraftShow
+      parameters:
+        - $ref: '#/components/parameters/ChapterId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Draft'
+              example:
+                data:
+                  chapter_id: 0199a0a0-0000-7000-8000-000000000010
+                  content:
+                    type: doc
+                    content: []
+                  version: 1
+                  updated_at: '2026-10-10T00:00:00+00:00'
+                  stats:
+                    characters: 0
+                    words: 0
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [Editor]
+      summary: Save draft (CAS on version)
+      description: |
+        Full document replace. Client sends the version last read; success increments version.
+        Conflict returns 409 with current `version` and `updated_at` (no `data` wrapper).
+      operationId: chaptersDraftUpdate
+      parameters:
+        - $ref: '#/components/parameters/ChapterId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SaveDraftRequest'
+            example:
+              version: 1
+              content:
+                type: doc
+                content:
+                  - type: paragraph
+                    content:
+                      - type: text
+                        text: Hello world
+      responses:
+        '200':
+          description: Saved
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Draft'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/DraftVersionConflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /chapters/{chapter}/revisions:
+    get:
+      tags: [Editor]
+      summary: List revisions (metadata only)
+      operationId: chaptersRevisionsIndex
+      parameters:
+        - $ref: '#/components/parameters/ChapterId'
+        - $ref: '#/components/parameters/PerPage'
+      responses:
+        '200':
+          description: Paginated; items omit content/plain_text
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedRevisionSummaries'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [Editor]
+      summary: Create immutable revision from current draft
+      operationId: chaptersRevisionsStore
+      parameters:
+        - $ref: '#/components/parameters/ChapterId'
+        - name: Idempotency-Key
+          in: header
+          required: false
+          schema:
+            type: string
+            maxLength: 128
+          description: Optional. Same key + same effective payload returns existing revision; mismatch → 409.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                label:
+                  type: ['string', 'null']
+                  maxLength: 120
+      responses:
+        '201':
+          description: Created (or idempotent replay)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/RevisionDetail'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Idempotency key reused with different payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /chapters/{chapter}/revisions/{revision}:
+    get:
+      tags: [Editor]
+      summary: Get revision with content
+      operationId: chaptersRevisionsShow
+      parameters:
+        - $ref: '#/components/parameters/ChapterId'
+        - $ref: '#/components/parameters/RevisionId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/RevisionDetail'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /chapters/{chapter}/revisions/{revision}/restore:
+    post:
+      tags: [Editor]
+      summary: Restore revision into draft (new version)
+      description: Requires CAS `version` of current draft. Revision row is never mutated.
+      operationId: chaptersRevisionsRestore
+      parameters:
+        - $ref: '#/components/parameters/ChapterId'
+        - $ref: '#/components/parameters/RevisionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [version]
+              properties:
+                version:
+                  type: integer
+                  minimum: 1
+      responses:
+        '200':
+          description: Draft updated
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Draft'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/DraftVersionConflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /works/{work}/publication:
+    get:
+      tags: [Publishing]
+      summary: Owner work publication status
+      operationId: worksPublicationShow
+      parameters:
+        - $ref: '#/components/parameters/WorkId'
+      responses:
+        '200':
+          description: OK (synthetic unpublished if never published)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/WorkPublication'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [Publishing]
+      summary: Publish or unpublish work
+      description: Empty work allowed. Does not auto-publish chapters. Idempotent.
+      operationId: worksPublicationUpdate
+      parameters:
+        - $ref: '#/components/parameters/WorkId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [published]
+              properties:
+                published:
+                  type: boolean
+            example:
+              published: true
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/WorkPublication'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /chapters/{chapter}/publication:
+    get:
+      tags: [Publishing]
+      summary: Owner chapter publication status
+      description: Never returns draft body. Includes source_draft_version and has_snapshot.
+      operationId: chaptersPublicationShow
+      parameters:
+        - $ref: '#/components/parameters/ChapterId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ChapterPublication'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /chapters/{chapter}/publish:
+    post:
+      tags: [Publishing]
+      summary: Snapshot current draft and mark chapter published
+      description: |
+        Copies Editor draft content/plain_text/version. Allowed while work unpublished
+        (chapter stays invisible on public API until work is published).
+        422 if draft missing or whitespace-only. 409 if draft version changes during publish.
+      operationId: chaptersPublish
+      parameters:
+        - $ref: '#/components/parameters/ChapterId'
+      responses:
+        '200':
+          description: Published / republished
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ChapterPublication'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Draft changed during publish
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  version:
+                    type: integer
+                  updated_at:
+                    type: ['string', 'null']
+                    format: date-time
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /chapters/{chapter}/unpublish:
+    post:
+      tags: [Publishing]
+      summary: Unpublish chapter (retain snapshot)
+      operationId: chaptersUnpublish
+      parameters:
+        - $ref: '#/components/parameters/ChapterId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ChapterPublication'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /public/works/{work}:
+    get:
+      tags: [Public]
+      summary: Public work structure
+      security: []
+      description: |
+        Only if work is published. Volumes without published chapters omitted.
+        Ungrouped published chapters in `chapters`. No draft/revision fields.
+        Header `Cache-Control: no-store, private`.
+      operationId: publicWorksShow
+      parameters:
+        - $ref: '#/components/parameters/WorkId'
+      responses:
+        '200':
+          description: OK
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                example: no-store, private
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/PublicWork'
+              example:
+                data:
+                  id: 0199a0a0-0000-7000-8000-000000000001
+                  title: Lifecycle Novel
+                  description: E2E work
+                  slug: lifecycle-novel
+                  status: ongoing
+                  author:
+                    id: 0199a0a0-0000-7000-8000-0000000000aa
+                    username: alice_01
+                    name: Alice
+                    bio: null
+                    avatar_url: null
+                    created_at: '2026-10-10T00:00:00+00:00'
+                  published_at: '2026-10-10T01:00:00+00:00'
+                  volumes: []
+                  chapters:
+                    - id: 0199a0a0-0000-7000-8000-000000000010
+                      title: Chapter One
+                      position: 1
+                      volume_id: null
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /public/chapters/{chapter}:
+    get:
+      tags: [Public]
+      summary: Public chapter content
+      security: []
+      description: Requires both work and chapter published. Returns published snapshot content only.
+      operationId: publicChaptersShow
+      parameters:
+        - $ref: '#/components/parameters/ChapterId'
+      responses:
+        '200':
+          description: OK
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                example: no-store, private
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/PublicChapter'
+              example:
+                data:
+                  id: 0199a0a0-0000-7000-8000-000000000010
+                  work_id: 0199a0a0-0000-7000-8000-000000000001
+                  volume_id: null
+                  title: Chapter One
+                  position: 1
+                  content:
+                    type: doc
+                    content:
+                      - type: paragraph
+                        content:
+                          - type: text
+                            text: Text A
+                  published_at: '2026-10-10T01:00:00+00:00'
+                  stats:
+                    characters: 6
+                    words: 2
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+components:
+  securitySchemes:
+    SanctumBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: PAT
+      description: |
+        Laravel Sanctum personal access token from register/login.
+        Header: `Authorization: Bearer <token>`.
+        Default lifetime: IDENTITY_TOKEN_EXPIRATION_MINUTES (30 days).
+
+  parameters:
+    WorkId:
+      name: work
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    VolumeId:
+      name: volume
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ChapterId:
+      name: chapter
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    RevisionId:
+      name: revision
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    TokenId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+      description: Sanctum personal_access_tokens.id
+    PerPage:
+      name: per_page
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+
+  responses:
+    Unauthenticated:
+      description: Missing/invalid bearer token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/MessageResponse'
+          example:
+            message: Unauthenticated.
+    NotFound:
+      description: Missing or inaccessible (foreign) resource — API uses 404 for ownership misses
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/MessageResponse'
+    ValidationError:
+      description: Validation failed
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationErrorBody'
+    TooManyRequests:
+      description: Rate limited
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/MessageResponse'
+    ConflictMessage:
+      description: Conflict (e.g. FK RESTRICT on delete)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/MessageResponse'
+          example:
+            message: Cannot delete chapter while editor or publication data exists.
+    DraftVersionConflict:
+      description: CAS conflict — body is not wrapped in `data`
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [message, version]
+            properties:
+              message:
+                type: string
+                example: Draft version conflict.
+              version:
+                type: integer
+              updated_at:
+                type: ['string', 'null']
+                format: date-time
+
+  schemas:
+    MessageResponse:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+
+    ValidationErrorBody:
+      type: object
+      required: [message, errors]
+      properties:
+        message:
+          type: string
+        errors:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+
+    PrivateUser:
+      type: object
+      required: [id, username, name, email, email_verified_at, bio, avatar_url, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        username:
+          type: string
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        email_verified_at:
+          type: ['string', 'null']
+          format: date-time
+        bio:
+          type: ['string', 'null']
+        avatar_url:
+          type: ['string', 'null']
+          description: Maps from users.avatar_path
+        created_at:
+          type: ['string', 'null']
+          format: date-time
+
+    PublicUser:
+      type: object
+      required: [id, username, name, bio, avatar_url, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        username:
+          type: string
+        name:
+          type: string
+        bio:
+          type: ['string', 'null']
+        avatar_url:
+          type: ['string', 'null']
+        created_at:
+          type: ['string', 'null']
+          format: date-time
+
+    PersonalAccessToken:
+      type: object
+      required: [id, name, abilities, last_used_at, expires_at, created_at]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        abilities:
+          type: array
+          items:
+            type: string
+        last_used_at:
+          type: ['string', 'null']
+          format: date-time
+        expires_at:
+          type: ['string', 'null']
+          format: date-time
+        created_at:
+          type: ['string', 'null']
+          format: date-time
+
+    AuthTokenResponse:
+      type: object
+      required: [data, token]
+      properties:
+        data:
+          $ref: '#/components/schemas/PrivateUser'
+        token:
+          type: string
+          description: Plain-text Sanctum PAT (shown once)
+
+    RegisterRequest:
+      type: object
+      required: [username, name, email, password, password_confirmation]
+      properties:
+        username:
+          type: string
+          minLength: 3
+          maxLength: 30
+          pattern: '^[a-zA-Z0-9_]+$'
+          description: Stored lowercase; reserved names rejected
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        password:
+          type: string
+          minLength: 12
+          maxLength: 128
+        password_confirmation:
+          type: string
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+
+    ResetPasswordRequest:
+      type: object
+      required: [token, email, password, password_confirmation]
+      properties:
+        token:
+          type: string
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 12
+          maxLength: 128
+        password_confirmation:
+          type: string
+
+    ChangePasswordRequest:
+      type: object
+      required: [current_password, password, password_confirmation]
+      properties:
+        current_password:
+          type: string
+        password:
+          type: string
+          minLength: 12
+          maxLength: 128
+        password_confirmation:
+          type: string
+
+    ChangeEmailRequest:
+      type: object
+      required: [current_password, email]
+      properties:
+        current_password:
+          type: string
+        email:
+          type: string
+          format: email
+          maxLength: 254
+
+    UpdateProfileRequest:
+      type: object
+      properties:
+        username:
+          type: string
+          minLength: 3
+          maxLength: 30
+          pattern: '^[a-zA-Z0-9_]+$'
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        bio:
+          type: ['string', 'null']
+          maxLength: 1000
+
+    WorkStatus:
+      type: string
+      enum: [ongoing, completed, hiatus]
+      description: Library metadata only — not publication state
+
+    Work:
+      type: object
+      required: [id, title, description, slug, status, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        description:
+          type: ['string', 'null']
+        slug:
+          type: string
+          description: Unique per author
+        status:
+          $ref: '#/components/schemas/WorkStatus'
+        created_at:
+          type: ['string', 'null']
+          format: date-time
+        updated_at:
+          type: ['string', 'null']
+          format: date-time
+        volumes:
+          type: array
+          items:
+            $ref: '#/components/schemas/Volume'
+        chapters:
+          type: array
+          items:
+            $ref: '#/components/schemas/Chapter'
+
+    WorkDetail:
+      allOf:
+        - $ref: '#/components/schemas/Work'
+      description: show() loads volumes + chapters
+
+    Volume:
+      type: object
+      required: [id, work_id, title, position, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        work_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        position:
+          type: integer
+          minimum: 1
+        created_at:
+          type: ['string', 'null']
+          format: date-time
+        updated_at:
+          type: ['string', 'null']
+          format: date-time
+
+    Chapter:
+      type: object
+      required: [id, work_id, volume_id, title, position, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        work_id:
+          type: string
+          format: uuid
+        volume_id:
+          type: ['string', 'null']
+          format: uuid
+        title:
+          type: string
+        position:
+          type: integer
+          minimum: 1
+          description: 1-based within sibling list (volume or ungrouped)
+        created_at:
+          type: ['string', 'null']
+          format: date-time
+        updated_at:
+          type: ['string', 'null']
+          format: date-time
+
+    StoreWorkRequest:
+      type: object
+      required: [title]
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description:
+          type: ['string', 'null']
+          maxLength: 10000
+        slug:
+          type: ['string', 'null']
+          minLength: 1
+          maxLength: 220
+        status:
+          $ref: '#/components/schemas/WorkStatus'
+
+    UpdateWorkRequest:
+      type: object
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description:
+          type: ['string', 'null']
+          maxLength: 10000
+        slug:
+          type: string
+          minLength: 1
+          maxLength: 220
+        status:
+          $ref: '#/components/schemas/WorkStatus'
+
+    StoreChapterRequest:
+      type: object
+      required: [title]
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        volume_id:
+          type: ['string', 'null']
+          format: uuid
+
+    PaginatedWorks:
+      type: object
+      required: [data, links, meta]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Work'
+        links:
+          type: object
+          additionalProperties: true
+        meta:
+          type: object
+          additionalProperties: true
+
+    ProseMirrorMark:
+      type: object
+      required: [type]
+      properties:
+        type:
+          type: string
+          enum: [bold, italic, strike, code, link]
+        attrs:
+          type: object
+          description: Required for link — href must be http/https; optional target, rel
+          properties:
+            href:
+              type: string
+              format: uri
+            target:
+              type: string
+            rel:
+              type: string
+          additionalProperties: false
+
+    ProseMirrorNode:
+      type: object
+      required: [type]
+      description: |
+        Allow-list from config/editor.php. Root must be type=doc.
+        Limits (defaults): max_json_bytes=1048576, max_nodes=20000, max_depth=32,
+        max_plain_text_chars=200000. Heading attrs.level ∈ {1,2,3}.
+      properties:
+        type:
+          type: string
+          enum:
+            - doc
+            - paragraph
+            - text
+            - heading
+            - bulletList
+            - orderedList
+            - listItem
+            - blockquote
+            - hardBreak
+            - horizontalRule
+        text:
+          type: string
+          description: Required for type=text; whitespace preserved
+        marks:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProseMirrorMark'
+        attrs:
+          type: object
+          properties:
+            level:
+              type: integer
+              enum: [1, 2, 3]
+        content:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProseMirrorNode'
+      additionalProperties: false
+
+    ProseMirrorDoc:
+      allOf:
+        - $ref: '#/components/schemas/ProseMirrorNode'
+      properties:
+        type:
+          const: doc
+
+    DraftStats:
+      type: object
+      required: [characters, words]
+      properties:
+        characters:
+          type: integer
+        words:
+          type: integer
+          description: Whitespace-split Unicode tokens
+
+    Draft:
+      type: object
+      required: [chapter_id, content, version, updated_at, stats]
+      properties:
+        chapter_id:
+          type: string
+          format: uuid
+        content:
+          $ref: '#/components/schemas/ProseMirrorDoc'
+        version:
+          type: integer
+          minimum: 1
+        updated_at:
+          type: ['string', 'null']
+          format: date-time
+        stats:
+          $ref: '#/components/schemas/DraftStats'
+
+    SaveDraftRequest:
+      type: object
+      required: [content, version]
+      properties:
+        content:
+          $ref: '#/components/schemas/ProseMirrorDoc'
+        version:
+          type: integer
+          minimum: 1
+          description: Expected current draft version (CAS)
+
+    RevisionSummary:
+      type: object
+      required: [id, chapter_id, source_version, label, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        chapter_id:
+          type: string
+          format: uuid
+        source_version:
+          type: integer
+        label:
+          type: ['string', 'null']
+        created_at:
+          type: ['string', 'null']
+          format: date-time
+
+    RevisionDetail:
+      allOf:
+        - $ref: '#/components/schemas/RevisionSummary'
+        - type: object
+          required: [content, plain_text]
+          properties:
+            content:
+              $ref: '#/components/schemas/ProseMirrorDoc'
+            plain_text:
+              type: string
+
+    PaginatedRevisionSummaries:
+      type: object
+      required: [data, links, meta]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/RevisionSummary'
+        links:
+          type: object
+          additionalProperties: true
+        meta:
+          type: object
+          additionalProperties: true
+
+    WorkPublication:
+      type: object
+      required:
+        - work_id
+        - is_published
+        - published_at
+        - unpublished_at
+        - published_chapters_count
+        - updated_at
+      properties:
+        work_id:
+          type: string
+          format: uuid
+        is_published:
+          type: boolean
+        published_at:
+          type: ['string', 'null']
+          format: date-time
+        unpublished_at:
+          type: ['string', 'null']
+          format: date-time
+        published_chapters_count:
+          type: integer
+          minimum: 0
+        updated_at:
+          type: ['string', 'null']
+          format: date-time
+
+    ChapterPublication:
+      type: object
+      required:
+        - chapter_id
+        - is_published
+        - source_draft_version
+        - published_at
+        - unpublished_at
+        - updated_at
+        - has_snapshot
+      properties:
+        chapter_id:
+          type: string
+          format: uuid
+        is_published:
+          type: boolean
+        source_draft_version:
+          type: ['integer', 'null']
+        published_at:
+          type: ['string', 'null']
+          format: date-time
+        unpublished_at:
+          type: ['string', 'null']
+          format: date-time
+        updated_at:
+          type: ['string', 'null']
+          format: date-time
+        has_snapshot:
+          type: boolean
+
+    PublicChapterSummary:
+      type: object
+      required: [id, title, position, volume_id]
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        position:
+          type: integer
+        volume_id:
+          type: ['string', 'null']
+          format: uuid
+
+    PublicVolume:
+      type: object
+      required: [id, title, position, chapters]
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        position:
+          type: integer
+        chapters:
+          type: array
+          items:
+            $ref: '#/components/schemas/PublicChapterSummary'
+
+    PublicWork:
+      type: object
+      required:
+        - id
+        - title
+        - description
+        - slug
+        - status
+        - author
+        - published_at
+        - volumes
+        - chapters
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        description:
+          type: ['string', 'null']
+        slug:
+          type: string
+        status:
+          $ref: '#/components/schemas/WorkStatus'
+        author:
+          $ref: '#/components/schemas/PublicUser'
+        published_at:
+          type: ['string', 'null']
+          format: date-time
+        volumes:
+          type: array
+          items:
+            $ref: '#/components/schemas/PublicVolume'
+        chapters:
+          type: array
+          description: Ungrouped published chapters only
+          items:
+            $ref: '#/components/schemas/PublicChapterSummary'
+
+    PublicChapter:
+      type: object
+      required:
+        - id
+        - work_id
+        - volume_id
+        - title
+        - position
+        - content
+        - published_at
+        - stats
+      properties:
+        id:
+          type: string
+          format: uuid
+        work_id:
+          type: string
+          format: uuid
+        volume_id:
+          type: ['string', 'null']
+          format: uuid
+        title:
+          type: string
+        position:
+          type: integer
+        content:
+          $ref: '#/components/schemas/ProseMirrorDoc'
+        published_at:
+          type: ['string', 'null']
+          format: date-time
+        stats:
+          $ref: '#/components/schemas/DraftStats'
