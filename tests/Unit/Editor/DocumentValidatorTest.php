@@ -81,6 +81,18 @@ it('rejects unsafe links, unknown nodes and non-doc roots', function (): void {
         ]],
     ])['content'][0]['type'])->toBe('image');
 
+    expect($validator->validate([
+        'type' => 'doc',
+        'content' => [[
+            'type' => 'image',
+            'attrs' => [
+                'mediaId' => '018f0b70-0000-7000-8000-000000000003',
+                'alt' => null,
+                'width' => null,
+            ],
+        ]],
+    ])['content'][0]['attrs']['mediaId'])->toBe('018f0b70-0000-7000-8000-000000000003');
+
     expect(fn () => $validator->validate([
         'type' => 'doc',
         'content' => [

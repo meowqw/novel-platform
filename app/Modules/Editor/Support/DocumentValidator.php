@@ -206,7 +206,8 @@ class DocumentValidator
             ]);
         }
 
-        if (array_key_exists('alt', $attrs)) {
+        // Tiptap often sends alt/width as null; treat null as absent.
+        if (array_key_exists('alt', $attrs) && $attrs['alt'] !== null) {
             $alt = $attrs['alt'];
 
             if (! is_string($alt) || mb_strlen($alt) > 300) {
@@ -216,7 +217,7 @@ class DocumentValidator
             }
         }
 
-        if (array_key_exists('width', $attrs)) {
+        if (array_key_exists('width', $attrs) && $attrs['width'] !== null) {
             $width = $attrs['width'];
 
             if (! is_string($width) || ! in_array($width, config('editor.image_widths'), true)) {
